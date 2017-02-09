@@ -5,7 +5,7 @@
 
 class ControlTimer {
 public:
-  static char ready;
+  static volatile char ready;
 
   static void begin(uint32_t micros) {
     // Open the PIT clock gate
@@ -33,15 +33,18 @@ public:
   }
 
   static char isReady() {
-    ready = !ready;
+    if (ready) {
+      ready = 0;
+      return 1;
+    }
+    PIT_TCTRL1 = 3;
 
-    return !ready;
+    return 0;
   }
 };
 
 // The control timer starts un-ready and is set to ready by the first timer interrupt
-char ControlTimer::ready = 0;
-
+volatile char ControlTimer::ready = 0;
 /**
  * The ISR sets the ready variable to true and resets the interrupt flag
  */
