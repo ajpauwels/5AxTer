@@ -23,7 +23,7 @@ void setup() {
 
 void loop() {
   if (controlTimer.isReady()) {
-    runMotors();
+    // runMotors();
     switch (state) {
       case WAIT_BEFORE_START:
         ++controlLoop_ctr;
@@ -51,6 +51,6 @@ void loop() {
   }
 }
 
-void runMotors() {
-  xMotor.run();
-}
+// void runMotors() {
+//   xMotor.run();
+// }
