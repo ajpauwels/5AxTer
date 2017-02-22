@@ -2,12 +2,10 @@
 #define STATE_MACHINE_H
 
 enum MACHINE_STATE {
-  WAIT,
+  WAIT_BEFORE_START,
+  WAIT_BEFORE_STOP,
   START,
-  STOP,
-
-  PIN_HIGH,
-  PIN_LOW
+  STOP
 } state;
 
 #endif
