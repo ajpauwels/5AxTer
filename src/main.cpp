@@ -18,11 +18,12 @@ void setup() {
 
   // Start the control loop - 100000Hz
   controlTimer.begin(controlTimerISR, 100000);
-  xMotor.setFreq(1, 0);
+  xMotor.setFreq(1, CW);
 }
 
 void loop() {
   if (controlTimer.isReady()) {
+    runMotors();
     switch (state) {
       case WAIT_BEFORE_START:
         ++controlLoop_ctr;
@@ -46,30 +47,10 @@ void loop() {
         // xMotor.stop();
         state = WAIT_BEFORE_START;
         break;
-      // case STEP_CLOCK_ACTIVE:
-        // digitalWrite(24, LOW);
-        //
-        // if (stepperTiming_ctr == 0) {
-        //   stepCount++;
-        // }
-        //
-        // ++stepperTiming_ctr;
-        //
-        // if (stepperTiming_ctr >= 10) {
-        //   stepperTiming_ctr = 0;
-        //   state = STEP_CLOCK_INACTIVE;
-        // }
-      //   break;
-      // case STEP_CLOCK_INACTIVE:
-        // digitalWrite(24, HIGH);
-        //
-        // ++stepperTiming_ctr;
-        //
-        // if (stepperTiming_ctr >= 40) {
-        //   stepperTiming_ctr = 0;
-        //   state = STEP_CLOCK_ACTIVE;
-        // }
-        break;
     }
   }
+}
+
+void runMotors() {
+  xMotor.run();
 }

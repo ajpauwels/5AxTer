@@ -13,8 +13,20 @@ public:
   static volatile char READY_VARS[4];
   static volatile ISR PIT_ISRS[4];
 
+  /**
+   * Constructor simply records which PIT this timer will unsigned*
+   *
+   * @param channelNr_c The PIT timer to use (0-3)
+   */
   Timer(unsigned short int channelNr_c) : channelNr(channelNr_c) {}
 
+  /**
+   * Begins the timer t0 run at the specified frequencly and call
+   * the given ISR
+   *
+   * @param timerISR_c The ISR to run
+   * @param hz The frequency to run at in hertz
+   */
   void begin(ISR timerISR_c, uint32_t hz) {
     // Open the PIT clock gate
     SIM_SCGC6 |= SIM_SCGC6_PIT;
@@ -22,17 +34,24 @@ public:
     // Enable PIT
     PIT_MCR = PIT_MCR_FRZ;
 
-    // Setup timer 1
+    // Setup the specified PIT by setting its counter and control values
     KINETISK_PIT_CHANNEL_t* channel;
     channel = KINETISK_PIT_CHANNELS + channelNr;
     channel->LDVAL = (F_BUS / hz) - 1;
     channel->TCTRL = PIT_TCTRL_TIE | PIT_TCTRL_TEN;
+
+    // Register the provided ISR in the ISR array
     PIT_ISRS[channelNr] = timerISR_c;
 
-    // Turn on timer 1
+    // Turn on interrupts for the specified timer
     NVIC_ENABLE_IRQ(IRQ_PIT_CH0 + channelNr);
   }
 
+  /**
+   * Disables the timer and its interrupt capabilities. This function clears
+   * the timer's registers, interrupts, ISR, and ready status. To resume,
+   * begin() must be called with a new frequency and ISR
+   */
   void stop() {
     // Disable timer interrupts and the timer itself
     NVIC_DISABLE_IRQ(IRQ_PIT_CH0 + channelNr);
@@ -45,6 +64,12 @@ public:
     Timer::PIT_ISRS[channelNr] = nullptr;
   }
 
+  /**
+   * Returns true if the timer has gone off since the last time this function
+   * was called
+   *
+   * @return 1 if timer has gone off, false otherwise
+   */
   char isReady() {
     NVIC_DISABLE_IRQ(IRQ_PIT_CH0 + channelNr);
     char ready = Timer::READY_VARS[channelNr];

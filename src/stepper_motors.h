@@ -8,13 +8,29 @@
 // Stepper timer runs at 100kHz = 10us per timer tick
 #define STEPPER_TIMER_FREQ 100000
 
-volatile char flag = 0;
-
+// 1 = full step, 2 = half step, 4 = quarter step, 8 = eighth step
 #define MICRO_STEPPING_MULTIPLIER 1
 #define STEPS_PER_REV 200 * MICRO_STEPPING_MULTIPLIER
+
+// Set to % duty cycle that the ACTIVE clock signal should be (e.g. 10 = 10% duty cycle)
 #define ACTIVE_DUTY_CYCLE 20
 
+// Set to the number of steppers this library needs to be able to handle
 #define NUM_STEPPERS 5
+
+// Comment this out if your stepper motor is sourcing rather than sinking
+#define SINKING
+
+#ifdef SINKING
+#define ACTIVE LOW
+#define INACTIVE HIGH
+#else
+#define ACTIVE HIGH
+#define INACTIVE LOW
+#endif
+
+#define CW ACTIVE
+#define CCW INACTIVE
 
 class StepperMotor {
 private:
@@ -43,14 +59,45 @@ public:
     pinMode(PIN_MS1, OUTPUT);
     pinMode(PIN_MS2, OUTPUT);
 
-    // Set all pins to inactive state
-    digitalWriteFast(PIN_MS1, LOW);
-    digitalWriteFast(PIN_MS2, LOW);
-    digitalWriteFast(PIN_DIR, HIGH);
+    // Set step level
+    switch (MICRO_STEPPING_MULTIPLIER) {
+      // Full step
+      case 1:
+        digitalWriteFast(PIN_MS1, ACTIVE);
+        digitalWriteFast(PIN_MS2, ACTIVE);
+        break;
+      // Half step
+      case 2:
+        digitalWriteFast(PIN_MS1, INACTIVE);
+        digitalWriteFast(PIN_MS2, ACTIVE);
+        break;
+      // Quarter step
+      case 4:
+        digitalWriteFast(PIN_MS1, ACTIVE);
+        digitalWriteFast(PIN_MS2, INACTIVE);
+        break;
+      // Eighth step
+      case 8:
+        digitalWriteFast(PIN_MS1, INACTIVE);
+        digitalWriteFast(PIN_MS2, INACTIVE);
+      // Default to eighth step (slowest and smoothest)
+      default:
+        digitalWriteFast(PIN_MS1, INACTIVE);
+        digitalWriteFast(PIN_MS2, INACTIVE);
+    }
+
+    // Pull direction pin LOW (clockwise)
+    digitalWriteFast(PIN_DIR, ACTIVE);
+
+    // Pull clock pin HIGH to
     digitalWriteFast(PIN_CLK, HIGH);
 
     // Start the motor at 0 rotational velocity
     freq = 0;
+  }
+
+  void runMotor() {
+    
   }
 
   /**
@@ -59,7 +106,7 @@ public:
    * @param vel The desired angular velocity in rad/s
    */
   bool setAngularVel(unsigned int vel, char dir) {
-    return setFreq(vel, dir);
+    return setFreq(vel / (2 * M_PI), dir);
   }
 
   /**
