@@ -65,6 +65,20 @@ public:
   }
 
   /**
+   * Disables interrupts but keeps the timer running
+   */
+  void disableInterrupts() {
+    NVIC_DISABLE_IRQ(IRQ_PIT_CH0 + channelNr);
+  }
+
+  /**
+   * Enables interrupts
+   */
+  void enableInterrupts() {
+    NVIC_ENABLE_IRQ(IRQ_PIT_CH0 + channelNr);
+  }
+
+  /**
    * Returns true if the timer has gone off since the last time this function
    * was called
    *

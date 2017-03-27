@@ -5,7 +5,11 @@ enum MACHINE_STATE {
   WAIT_BEFORE_START,
   WAIT_BEFORE_STOP,
   START,
-  STOP
+  STOP,
+  RAMP_UP,
+  RAMP_DOWN,
+  HOLD,
+  MAX_SPEED
 } state;
 
 #endif
