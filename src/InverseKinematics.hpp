@@ -1,13 +1,13 @@
 #ifndef INVERSE_KINEMATICS
 #define INVERSE_KINEMATICS
 
-#include "utility.h"
+#include "utility.hpp"
 
 class InverseKinematics {
 private:
-	float pos_frame_00(float S_00, float x_buildplate, float y_buildplate, float z_buildplate, float s_rho,
-		float c_rho, float s_theta, float c_theta, float s_phi, float c_phi, float s_psi, float c_psi,
-		float z_offset);
+	float pos_frame_00(float S_00, float x_buildplate, float y_buildplate, float z_buildplate,
+		float s_rho, float c_rho, float s_theta, float c_theta, float s_phi, float c_phi, float s_psi,
+		float c_psi, float z_offset);
 	float pos_frame_10(float S_10, float x_buildplate, float y_buildplate, float z_buildplate, float s_rho,
 		float c_rho, float s_phi, float c_phi, float s_psi, float c_psi);
 	float pos_frame_20(float S_20, float x_buildplate, float y_buildplate, float z_buildplate, float s_rho,
@@ -51,12 +51,12 @@ private:
 	float acc_buildplate_10(Matrix3x1 constMatrix, float ij_10, float ij_11, float ij_12);
 	float acc_buildplate_20(Matrix3x1 constMatrix, float ij_20, float ij_21, float ij_22);
 public:
-	float pos_frameMatrix[3][1];
-	float vel_frameMatrix[3][1];
-	float acc_frameMatrix[3][1];
-	float pos_buildplateMatrix[3][1];
-	float vel_buildplateMatrix[3][1];
-	float acc_buildplateMatrix[3][1];
+	Matrix3x1 pos_frameMatrix;
+	Matrix3x1 vel_frameMatrix;
+	Matrix3x1 acc_frameMatrix;
+	Matrix3x1 pos_buildplateMatrix;
+	Matrix3x1 vel_buildplateMatrix;
+	Matrix3x1 acc_buildplateMatrix;
 
 	InverseKinematics() {}
 
@@ -67,18 +67,19 @@ public:
 		float z_dot_buildplate, float theta_dot, float phi_dot);
 
 	Matrix3x1 acceleration_frame(Matrix3x8 accJacobian, Matrix3x8 velJacobian, float x_ddot_buildplate,
-		float y_ddot_buildplate, float z_ddot_buildplate, float theta_ddot, float phi_ddot, float x_dot_buildplate,
-		float y_dot_buildplate,	float z_dot_buildplate, float theta_dot, float phi_dot);
+		float y_ddot_buildplate, float z_ddot_buildplate, float theta_ddot, float phi_ddot,
+		float x_dot_buildplate, float y_dot_buildplate,	float z_dot_buildplate, float theta_dot,
+		float phi_dot);
 
-	Matrix3x1 position_buildplate(Matrix3x1 S, Matrix3x1 invPosFrameMatrix, float rho, float theta, float phi,
-		float psi, float z_offset);
+	Matrix3x1 position_buildplate(Matrix3x1 S, Matrix3x1 invPosFrameMatrix, float rho, float theta,
+		float phi, float psi, float z_offset);
 
 	Matrix3x1 velocity_buildplate(Matrix3x8 velJacobian, Matrix3x1 invVelFrameMatrix, float theta_dot,
 		float phi_dot);
 
-	Matrix3x1 acceleration_buildplate(Matrix3x8 velJacobian, Matrix3x8 accJacobian, Matrix3x1 invAccFrameMatrix,
-		float theta_ddot, float phi_ddot, float x_dot_buildplate, float y_dot_buildplate, float z_dot_buildplate,
-		float theta_dot, float phi_dot);
+	Matrix3x1 acceleration_buildplate(Matrix3x8 velJacobian, Matrix3x8 accJacobian,
+		Matrix3x1 invAccFrameMatrix, float theta_ddot, float phi_ddot, float x_dot_buildplate,
+		float y_dot_buildplate, float z_dot_buildplate, float theta_dot, float phi_dot);
 };
 
 #endif

@@ -4,25 +4,7 @@
 #include <Arduino.h>
 #include "pin_map.h"
 #include "timers.h"
-
-// Stepper timer runs at 100kHz = 10us per timer tick
-#define STEPPER_TIMER_FREQ 1000000
-
-// Defines with how much precision error compensation will occur
-#define ERROR_COMPENSATION_PRECISION 6
-
-// 1 = full step, 2 = half step, 4 = quarter step, 8 = eighth step
-#define MICRO_STEPPING_MULTIPLIER 8
-#define STEPS_PER_REV 200 * MICRO_STEPPING_MULTIPLIER
-
-// Set to % duty cycle that the ACTIVE clock signal should be (e.g. 10 = 10% duty cycle)
-#define ACTIVE_DUTY_CYCLE 20
-
-// Set to the number of steppers this library needs to be able to handle
-#define NUM_STEPPERS 2
-
-// Comment this out if your stepper motor is sourcing rather than sinking
-#define SINKING
+#include "settings.h"
 
 #ifdef SINKING
 #define ACTIVE LOW
@@ -124,6 +106,7 @@ public:
    * Set the clock pin to ACTIVE state, indicating a step
    */
   void setClockActive() {
+    clkFlag = ACTIVE;
     digitalWriteFast(PIN_CLK, ACTIVE);
   }
 
@@ -131,6 +114,7 @@ public:
    * Set the clock pin to INACTIVE state, indicating reduced current mode
    */
   void setClockInactive() {
+    clkFlag = INACTIVE;
     digitalWriteFast(PIN_CLK, INACTIVE);
   }
 
@@ -141,8 +125,8 @@ public:
    * @return The new state of the clock pin
    */
   bool toggleClock() {
-    digitalWriteFast(PIN_CLK, clkFlag);
     clkFlag = !clkFlag;
+    digitalWriteFast(PIN_CLK, clkFlag);
 
     return clkFlag;
   }
@@ -283,23 +267,34 @@ namespace StepperManager {
    *
    * @param remainder The remainder to compute error correction for
    */
-  void computeErrorCalibration(uint32_t stepper_idx, int multiplier, float remainder) {
-    unsigned int error_idx = 0;
+  void computeErrorCalibration(uint32_t stepper_idx, float remainder) {
+    // The value at which the error counter should be reset down to 0
     unsigned int resetValue = 1;
 
-    for (; error_idx < ERROR_COMPENSATION_PRECISION; ++error_idx) {
+    // Loop through each error counter of the given stepper
+    for (unsigned int error_idx = 0; error_idx < ERROR_COMPENSATION_PRECISION; ++error_idx) {
+      // If the remainder is 0 or insignificant, the error counter is not used
       if (remainder <= 0.01) {
+        remainder = 0;
         stepperErrorCounts[stepper_idx][error_idx] = 0;
       } else {
+        // Number of timer ticks before the timing is a full tick behind
         float newCount = (1.0 / remainder);
         int ceilNewCount = (int)ceil(newCount);
+
+        // If this is not the first error counter, you have to compute this counter as a multiple
+        // of the previous, as we're tracking cumulative error across multiple levels of innacuracy
         if (error_idx > 0) {
           stepperErrorCounts[stepper_idx][error_idx] = stepperErrorCounts[stepper_idx][error_idx - 1] * ceilNewCount;
         } else {
           stepperErrorCounts[stepper_idx][error_idx] = ceilNewCount;
         }
 
+        // By multiplying all counters together, we get a common multiple at which we can
+        // safely reset the error counter to 0
         resetValue *= ceilNewCount;
+
+        // The next error counter will be based on the remainder after this one
         remainder = remainder * ceilNewCount - 1.0;
       }
     }
@@ -309,7 +304,7 @@ namespace StepperManager {
    * Set the speed of a stepper motor in rotations per second. Positive
    * values indicate clockwise, negative values counter-clockwise.
    * A value of 0 stops the motor. The general range of acceptable
-   * values is 0.1Hz < f < 6Hz.
+   * values is 0Hz <= f <= 25Hz
    *
    * @param motorIndex The index of the motor
    * @param freq The desired speed
@@ -318,42 +313,64 @@ namespace StepperManager {
     // Does not refer to a valid motor, ignore
     if (motorIndex >= NUM_STEPPERS) return;
 
+    // If the motor is already at this frequency, don't change anything
+    if (stepperFreqs[motorIndex] == freq) return;
+
     // Store the requested frequency
     stepperFreqs[motorIndex] = freq;
 
-    float activeCount_f, inactiveCount_f;
-    int64_t activeCount_i, inactiveCount_i;
-    if (freq != 0.0) {
+    float activeCount_f, inactiveCount_f, totalRemainder_f;
+    uint64_t activeCount_i, inactiveCount_i;
+    if (freq >= (1.0 / STEPS_PER_REV)) {
       // Compute number of steps active and inactive based on timer freq and percent duty cycle
       float activeUnit = ((float)STEPPER_TIMER_FREQ * (float)ACTIVE_DUTY_CYCLE / ((float)STEPS_PER_REV)) / 100.0;
       activeCount_f = activeUnit / freq;
       activeCount_i = floor(activeCount_f);
-      inactiveCount_f = activeCount_f * 4.0;
+      inactiveCount_f = activeCount_f * (float)((100 / ACTIVE_DUTY_CYCLE) - 1);
       inactiveCount_i = floor(inactiveCount_f);
 
       // Add up the remainders of both the active and inactive count
-      float totalRemainder_f = (activeCount_f - activeCount_i) + (inactiveCount_f - inactiveCount_i);
-      float totalRemainder_i = floor(totalRemainder_f);
+      totalRemainder_f = (activeCount_f - activeCount_i) + (inactiveCount_f - inactiveCount_i);
 
       // If the added remainder adds a whole step, account for that step and get the new remainder
       if (totalRemainder_f >= 1) {
         inactiveCount_f += 1;
         inactiveCount_i += 1;
         totalRemainder_f -= 1;
-        totalRemainder_i -= 1;
       }
-
-      // Compute error correction based on remainder
-      computeErrorCalibration(motorIndex, activeCount_i + inactiveCount_i, totalRemainder_f - totalRemainder_i);
     } else {
       activeCount_i = inactiveCount_i = 0;
+      totalRemainder_f = 0.0;
     }
+
+    // If the active and inactive counts are the same as previous, don't change anything
+    if (activeCount_i == stepperActiveCounts[motorIndex] && inactiveCount_i == stepperInactiveCounts[motorIndex]) {
+      return;
+    }
+
+    // Compute error correction based on remainder
+    computeErrorCalibration(motorIndex, totalRemainder_f);
 
     // Disable interrupts and set the new counter values
     stepperTimer.disableInterrupts();
-    // Set the stepper in reduced current mode
-    steppers[motorIndex].setClockInactive();
-    stepperClockCounters[motorIndex] = inactiveCount_i;
+    StepperMotor& motor = steppers[motorIndex];
+    bool stepperStatus = motor.getClockStatus();
+
+    // Difference between the new counter value and the old counter value, and how many counts there
+    // would be left if the new counter value was applied
+    long int countDiff = (stepperStatus == ACTIVE) ? activeCount_i - stepperActiveCounts[motorIndex] : inactiveCount_i - stepperInactiveCounts[motorIndex];
+    long int remainingCount = stepperClockCounters[motorIndex] + countDiff;
+
+    // If the state should have already flipped, flip immediately
+    if (remainingCount <= 0) {
+      stepperClockCounters[motorIndex] = 1;
+    }
+    // If there is time remaining, set the counter value to that time before continuing
+    else {
+      stepperClockCounters[motorIndex] = remainingCount;
+    }
+
+    // Update to the new active and inactive counter values
     stepperActiveCounts[motorIndex] = activeCount_i;
     stepperInactiveCounts[motorIndex] = inactiveCount_i;
     stepperTimer.enableInterrupts();
@@ -367,8 +384,7 @@ namespace StepperManager {
    * @param speed The speed in mm/s
    */
   void setSpeedMM(unsigned int motorIndex, float speed) {
-    float inches = speed / 25.4;
-    float rotations = inches / 0.1;
+    float rotations = speed / 2.54;
 
     return setSpeed(motorIndex, rotations);
   }
