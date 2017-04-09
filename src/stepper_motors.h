@@ -103,6 +103,16 @@ public:
   }
 
   /**
+   * Sets the direction of the stepper to either clockwise or
+   * counter-clockwise
+   *
+   * @param Use the CW or CCW symbols to define direction
+   */
+   void setDirection(bool dir) {
+     digitalWriteFast(PIN_DIR, dir);
+   }
+
+  /**
    * Set the clock pin to ACTIVE state, indicating a step
    */
   void setClockActive() {
@@ -151,13 +161,17 @@ public:
 namespace StepperManager {
   namespace {
     // Sorted by index, the steppers are: X, Y, Z, A, B
-    StepperMotor steppers[NUM_STEPPERS] { {PIN_X_MOTOR_CLK, PIN_X_MOTOR_DIR}, {PIN_Y_MOTOR_CLK, PIN_Y_MOTOR_DIR} };
+    StepperMotor steppers[NUM_STEPPERS] { {PIN_X_MOTOR_CLK, PIN_X_MOTOR_DIR},
+                                          {PIN_Y_MOTOR_CLK, PIN_Y_MOTOR_DIR},
+                                          {PIN_Z_MOTOR_CLK, PIN_Z_MOTOR_DIR},
+                                          {PIN_A_MOTOR_CLK, PIN_A_MOTOR_DIR},
+                                          {PIN_B_MOTOR_CLK, PIN_B_MOTOR_DIR} };
     // Frequency each stepper is running at
-    uint32_t stepperFreqs[NUM_STEPPERS] { 0, 0 };
+    uint32_t stepperFreqs[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // Number of timer ISR ticks the clock signal should be active
-    uint64_t stepperActiveCounts[NUM_STEPPERS] { 0, 0 };
+    uint64_t stepperActiveCounts[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // Number of timer ISR ticks the clock signal should be inactive
-    uint64_t stepperInactiveCounts[NUM_STEPPERS] { 0, 0 };
+    uint64_t stepperInactiveCounts[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // Number of full clock cycles before have to add an error compensation tick to the inactive signal
     uint64_t stepperErrorCounts[NUM_STEPPERS][ERROR_COMPENSATION_PRECISION];
     // When to reset the error counter value to 0
@@ -165,9 +179,11 @@ namespace StepperManager {
     // Counts number of full clock cycles for error compensation
     volatile uint64_t stepperErrorCounters[NUM_STEPPERS];
     // Counts number of timer ISR ticks for motor clocks
-    volatile int64_t stepperClockCounters[NUM_STEPPERS] { 0, 0 };
+    volatile int64_t stepperClockCounters[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // The status of each stepper motor
     volatile bool stepperStatuses[NUM_STEPPERS] { INACTIVE, INACTIVE };
+    // Array used to store a set number of steps to run, if provided
+    volatile long int stepperStepCounts[NUM_STEPPERS] { -1, -1, -1, -1, -1 };
     // The timer used to run the steppers
     Timer stepperTimer(STEPPER_TIMER_PIT_CH);
 
@@ -178,16 +194,19 @@ namespace StepperManager {
      * clock cycle.
      */
     void stepperISR() {
-      // Loop through each stepper motor
+      // Loop through each stepper motor and update it if it has step counts
       for (uint32_t i = 0; i < NUM_STEPPERS; ++i) {
         // If the count has reached zero, toggle a step
-        if (--stepperClockCounters[i] == 0) {
+        if (--stepperClockCounters[i] == 0 && stepperStepCounts[i] != 0) {
           StepperMotor* stepper = steppers + i;
           stepperStatuses[i] = stepper->toggleClock();
 
           // If we've gone through a full cycle, increment the error counter
           if (stepperStatuses[i] == ACTIVE) {
             stepperErrorCounters[i]++;
+
+            // If this stepper is running for a set number of steps, decrement
+            if (stepperStepCounts[i] > 0) --stepperStepCounts[i];
           }
         }
       }
@@ -216,12 +235,14 @@ namespace StepperManager {
       // Collect data also used in timer interrupts
       stepperTimer.disableInterrupts();
       int64_t stepperCountVal = stepperClockCounters[i];
+      int64_t stepperStepVal = stepperStepCounts[i];
       uint64_t stepperErrorVal = stepperErrorCounters[i];
       bool stepperStatusVal = stepperStatuses[i];
       stepperTimer.enableInterrupts();
 
-      // If the clock value has counted down to <= 0, update the stepper with new values
-      if (stepperCountVal <= 0) {
+      // If the clock value has counted down to <= 0 and we have steps left,
+      // update the stepper with new values
+      if (stepperCountVal <= 0 && (stepperStepVal > 0 || stepperStepVal < 0)) {
         // The base count depends on whether the stepper is now active or inactive
         uint64_t nextCount = stepperStatusVal == ACTIVE ? stepperActiveCounts[i] : stepperInactiveCounts[i];
 
@@ -244,12 +265,12 @@ namespace StepperManager {
 
         // Update values used in the timer ISR
         stepperTimer.disableInterrupts();
-        // The stepperClockCounter is <= 0, any negative value must be added to the nextCount
+        // If the stepperClockCounter is <= 0, any negative value must be added to the nextCount
         // as these are overshoot ticks and therefore reduce the number of ticks in the next cycle
         stepperClockCounters[i] += nextCount;
 
         // Only reset the error counter on the falling edge of the cycle
-        if (stepperStatusVal == INACTIVE && stepperErrorVal == stepperErrorCounterResetValues[i]) {
+        if (stepperStatusVal == INACTIVE && stepperErrorCounters[i] == stepperErrorCounterResetValues[i]) {
           stepperErrorCounters[i] = 0;
         }
         stepperTimer.enableInterrupts();
@@ -276,26 +297,26 @@ namespace StepperManager {
       // If the remainder is 0 or insignificant, the error counter is not used
       if (remainder <= 0.01) {
         remainder = 0;
-        stepperErrorCounts[stepper_idx][error_idx] = 0;
+        stepperErrorCounts[stepper_idx][error_idx] = remainder;
       } else {
         // Number of timer ticks before the timing is a full tick behind
-        float newCount = (1.0 / remainder);
-        int ceilNewCount = (int)ceil(newCount);
+        float newCount_f = (1.0 / remainder);
+        int newCount_i = (int)ceil(newCount_f);
 
         // If this is not the first error counter, you have to compute this counter as a multiple
         // of the previous, as we're tracking cumulative error across multiple levels of innacuracy
         if (error_idx > 0) {
-          stepperErrorCounts[stepper_idx][error_idx] = stepperErrorCounts[stepper_idx][error_idx - 1] * ceilNewCount;
+          stepperErrorCounts[stepper_idx][error_idx] = stepperErrorCounts[stepper_idx][error_idx - 1] * newCount_i;
         } else {
-          stepperErrorCounts[stepper_idx][error_idx] = ceilNewCount;
+          stepperErrorCounts[stepper_idx][error_idx] = newCount_i;
         }
 
         // By multiplying all counters together, we get a common multiple at which we can
         // safely reset the error counter to 0
-        resetValue *= ceilNewCount;
+        resetValue *= newCount_i;
 
         // The next error counter will be based on the remainder after this one
-        remainder = remainder * ceilNewCount - 1.0;
+        remainder = remainder * newCount_i - 1.0;
       }
     }
   }
@@ -304,17 +325,32 @@ namespace StepperManager {
    * Set the speed of a stepper motor in rotations per second. Positive
    * values indicate clockwise, negative values counter-clockwise.
    * A value of 0 stops the motor. The general range of acceptable
-   * values is 0Hz <= f <= 25Hz
+   * values is 0Hz <= f <= 25Hz.
+   * If a value is specified for numSteps, the motor will run at the given
+   * frequency for the given number of steps.
    *
    * @param motorIndex The index of the motor
    * @param freq The desired speed
+   * @param numSteps The number of steps to travel
    */
-  void setSpeed(unsigned int motorIndex, float freq) {
+  void setSpeed(unsigned int motorIndex, float freq, long int numSteps = -1) {
     // Does not refer to a valid motor, ignore
     if (motorIndex >= NUM_STEPPERS) return;
 
+    // Get motor turn direction
+    bool isCW = freq > 0.0;
+    freq = abs(freq);
+
     // If the motor is already at this frequency, don't change anything
-    if (stepperFreqs[motorIndex] == freq) return;
+    if (stepperFreqs[motorIndex] == freq) {
+      stepperTimer.disableInterrupts();
+      stepperStepCounts[motorIndex] = numSteps;
+      stepperTimer.enableInterrupts();
+
+      // Update the direction
+      steppers[motorIndex].setDirection(isCW ? CW : CCW);
+      return;
+    }
 
     // Store the requested frequency
     stepperFreqs[motorIndex] = freq;
@@ -373,7 +409,11 @@ namespace StepperManager {
     // Update to the new active and inactive counter values
     stepperActiveCounts[motorIndex] = activeCount_i;
     stepperInactiveCounts[motorIndex] = inactiveCount_i;
+    stepperStepCounts[motorIndex] = numSteps;
     stepperTimer.enableInterrupts();
+
+    // Update the direction
+    motor.setDirection(isCW ? CW : CCW);
   }
 
   /**
@@ -388,6 +428,23 @@ namespace StepperManager {
 
     return setSpeed(motorIndex, rotations);
   }
+
+  /**
+   * Returns the number of steps left. If the stepper is running
+   * indefinitely, returns -1
+   *
+   * @param idx The index of the motor to get steps of
+   * @return Number of steps left or -1
+   */
+   long int stepsLeft(int idx) {
+     long int stepVal;
+     stepperTimer.disableInterrupts();
+     stepVal = stepperStepCounts[idx];
+     stepperTimer.enableInterrupts();
+
+     if (stepVal < 0) return -1;
+     return stepVal;
+   }
 };
 
 #endif

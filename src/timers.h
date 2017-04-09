@@ -124,9 +124,9 @@ void pit2_isr() {
 }
 
 void pit3_isr() {
-  PIT_TFLG1 = 1;
-  Timer::READY_VARS[2] = 1;
-  Timer::PIT_ISRS[2]();
+  PIT_TFLG3 = 1;
+  Timer::READY_VARS[3] = 1;
+  Timer::PIT_ISRS[3]();
 }
 
 #endif

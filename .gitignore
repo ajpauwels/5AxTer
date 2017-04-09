@@ -35,3 +35,8 @@
 .piolibdeps
 .clang_complete
 .gcc-flags.json
+
+# Custom files
+LOG
+MOD_OBJ.TXT
+OBJ.TXT
