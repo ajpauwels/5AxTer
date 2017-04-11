@@ -27,8 +27,7 @@ private:
 
   void fillBuffer() {
     while (!fileBuf.isFull() && gFile.available()) {
-      char c = gFile.read();
-      fileBuf.push(c);
+      fileBuf.push(gFile.read());
     }
   }
 
@@ -78,7 +77,7 @@ public:
           if (chars[0] == '\n' && chars[1] == 'G') {
             fileBuf.pop();
             commandNr = 0;
-            // state = NUMBER;
+            state = NUMBER;
             break;
           }
           chars[0] = fileBuf.pop();

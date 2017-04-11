@@ -35,7 +35,7 @@
 
 /** BUFFER SETTINGS **/
 // The number of chars to buffer from file
-#define FILE_CHAR_BUFFER_SIZE 65536
+#define FILE_CHAR_BUFFER_SIZE 2048
 // The number of GCode commands to buffer from the SD card
 #define GCODE_COMMAND_BUFFER_SIZE 1024
 #define PATH_POINTS_BUFFER_SIZE 1024

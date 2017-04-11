@@ -167,15 +167,15 @@ namespace StepperManager {
                                           {PIN_A_MOTOR_CLK, PIN_A_MOTOR_DIR},
                                           {PIN_B_MOTOR_CLK, PIN_B_MOTOR_DIR} };
     // Frequency each stepper is running at
-    uint32_t stepperFreqs[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
+    volatile uint32_t stepperFreqs[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // Number of timer ISR ticks the clock signal should be active
-    uint64_t stepperActiveCounts[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
+    volatile uint64_t stepperActiveCounts[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // Number of timer ISR ticks the clock signal should be inactive
-    uint64_t stepperInactiveCounts[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
+    volatile uint64_t stepperInactiveCounts[NUM_STEPPERS] { 0, 0, 0, 0, 0 };
     // Number of full clock cycles before have to add an error compensation tick to the inactive signal
-    uint64_t stepperErrorCounts[NUM_STEPPERS][ERROR_COMPENSATION_PRECISION];
+    volatile uint64_t stepperErrorCounts[NUM_STEPPERS][ERROR_COMPENSATION_PRECISION];
     // When to reset the error counter value to 0
-    uint64_t stepperErrorCounterResetValues[NUM_STEPPERS];
+    volatile uint64_t stepperErrorCounterResetValues[NUM_STEPPERS];
     // Counts number of full clock cycles for error compensation
     volatile uint64_t stepperErrorCounters[NUM_STEPPERS];
     // Counts number of timer ISR ticks for motor clocks
@@ -207,6 +207,45 @@ namespace StepperManager {
 
             // If this stepper is running for a set number of steps, decrement
             if (stepperStepCounts[i] > 0) --stepperStepCounts[i];
+          }
+        }
+
+        int64_t stepperCountVal = stepperClockCounters[i];
+        int64_t stepperStepVal = stepperStepCounts[i];
+        uint64_t stepperErrorVal = stepperErrorCounters[i];
+        bool stepperStatusVal = stepperStatuses[i];
+
+        // If the clock value has counted down to <= 0 and we have steps left,
+        // update the stepper with new values
+        if (stepperCountVal <= 0 && (stepperStepVal > 0 || stepperStepVal < 0)) {
+          // The base count depends on whether the stepper is now active or inactive
+          uint64_t nextCount = stepperStatusVal == ACTIVE ? stepperActiveCounts[i] : stepperInactiveCounts[i];
+
+          // Error compensation only occurs on the inactive portion of the cycle
+          if (stepperStatusVal == INACTIVE) {
+            // Get the first level of error counting
+            uint64_t errorCount = stepperErrorCounts[i][0];
+
+            // Check each level of error counting to see if new ticks should be
+            // added to the next clock count, stops when the maximum level of error
+            // counting is reached or the next error counting value is 0
+            for (unsigned int error_idx = 1; error_idx < ERROR_COMPENSATION_PRECISION && errorCount > 0; ++error_idx) {
+              if (stepperErrorVal % errorCount == 0) {
+                nextCount++;
+              }
+
+              errorCount = stepperErrorCounts[i][error_idx];
+            }
+          }
+
+          // Update values used in the timer ISR
+          // If the stepperClockCounter is <= 0, any negative value must be added to the nextCount
+          // as these are overshoot ticks and therefore reduce the number of ticks in the next cycle
+          stepperClockCounters[i] += nextCount;
+
+          // Only reset the error counter on the falling edge of the cycle
+          if (stepperStatusVal == INACTIVE && stepperErrorCounters[i] == stepperErrorCounterResetValues[i]) {
+            stepperErrorCounters[i] = 0;
           }
         }
       }

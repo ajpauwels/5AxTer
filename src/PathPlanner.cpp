@@ -4,7 +4,7 @@
 void PathPlanner::update() {
   if (gReader.newCommandAvailable() && !gCommandBuff.isFull()) {
     GCommand comm = gReader.getNewCommand();
-    // GCodeReader::commandToSerial(comm);
+    GCodeReader::commandToSerial(comm);
     // gCommandBuff.push(gReader.getNewCommand());
   }
 
